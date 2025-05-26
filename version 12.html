@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Disponibilidad Pádel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDxDWzC5lvwrZIGofndj17u0YrhudAFSHM",
+      authDomain: "padel-disponibilidad.firebaseapp.com",
+      projectId: "padel-disponibilidad",
+      storageBucket: "padel-disponibilidad.appspot.com",
+      messagingSenderId: "1075366795430",
+      appId: "1:1075366795430:web:d24e45368d70089dfb3c67"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const col = collection(db, "disponibilidades");
+
+    const form = document.getElementById("form");
+    const lista = document.getElementById("lista");
+    const calendario = document.getElementById("calendario-visual");
+    const toggleListaBtn = document.getElementById("toggle-lista");
+
+    let listaVisible = true;
+    toggleListaBtn.addEventListener("click", () => {
+      listaVisible = !listaVisible;
+      lista.style.display = listaVisible ? "block" : "none";
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const nombre = form.nombre.value;
+      const fecha = form.fecha.value;
+      const turno = form.turno.value;
+
+      if (!nombre || !fecha || !turno) return;
+
+      await addDoc(col, { nombre, fecha, turno });
+      form.reset();
+    });
+
+    onSnapshot(col, (snapshot) => {
+      lista.innerHTML = "";
+      const disponibilidades = {};
+      snapshot.forEach((docu) => {
+        const d = docu.data();
+        const key = `${d.fecha}_${d.turno}`;
+        if (!disponibilidades[key]) disponibilidades[key] = [];
+        disponibilidades[key].push(d.nombre);
+
+        const item = document.createElement("li");
+        const [year, month, day] = d.fecha.split("-");
+        const formattedDate = `${month}/${day}/${year}`;
+        item.textContent = `${d.nombre} - ${formattedDate} - ${d.turno}`;
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "🗑️";
+        delBtn.className = "ml-2 text-red-500 hover:text-red-700";
+        delBtn.onclick = async () => await deleteDoc(doc(db, "disponibilidades", docu.id));
+
+        item.appendChild(delBtn);
+        lista.appendChild(item);
+      });
+
+      const ahora = new Date();
+      renderVisualCalendar(disponibilidades, ahora.getFullYear(), ahora.getMonth());
+    });
+
+    function renderVisualCalendar(disponibilidades, year, month) {
+      calendario.innerHTML = "";
+      const diasEnMes = new Date(year, month + 1, 0).getDate();
+      const primerDiaSemana = new Date(year, month, 1).getDay();
+
+      const grid = document.createElement("div");
+      grid.className = "grid grid-cols-7 gap-1";
+
+      const nombresDias = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+      nombresDias.forEach(d => {
+        const div = document.createElement("div");
+        div.className = "text-center font-bold text-sm text-gray-700";
+        div.textContent = d;
+        grid.appendChild(div);
+      });
+
+      for (let i = 0; i < primerDiaSemana; i++) {
+        const espacio = document.createElement("div");
+        espacio.className = "h-20";
+        grid.appendChild(espacio);
+      }
+
+      for (let dia = 1; dia <= diasEnMes; dia++) {
+        const fecha = `${year}-${String(month + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+        const mañanaKey = `${fecha}_mañana`;
+        const tardeKey = `${fecha}_tarde`;
+
+        const m = disponibilidades[mañanaKey] || [];
+        const t = disponibilidades[tardeKey] || [];
+
+        const mColor = m.length >= 4 ? "bg-green-500" : m.length === 3 ? "bg-yellow-300" : "bg-gray-300";
+        const tColor = t.length >= 4 ? "bg-green-500" : t.length === 3 ? "bg-yellow-300" : "bg-gray-300";
+
+        const cell = document.createElement("div");
+        cell.className = "relative w-20 h-20 border rounded-md overflow-hidden";
+
+        const diaTexto = document.createElement("div");
+        diaTexto.className = "absolute top-0 left-0 text-xs text-gray-700 p-1 z-10";
+        diaTexto.textContent = dia;
+        cell.appendChild(diaTexto);
+
+        const topLeft = document.createElement("div");
+        topLeft.className = `absolute inset-0 ${mColor} clip-top-left`;
+        topLeft.title = `Mañana: ${m.join(', ')}`;
+        cell.appendChild(topLeft);
+
+        const bottomRight = document.createElement("div");
+        bottomRight.className = `absolute inset-0 ${tColor} clip-bottom-right`;
+        bottomRight.title = `Tarde: ${t.join(', ')}`;
+        cell.appendChild(bottomRight);
+
+        grid.appendChild(cell);
+      }
+
+      calendario.appendChild(grid);
+    }
+
+    const style = document.createElement("style");
+    style.innerHTML = `
+      .clip-top-left {
+        clip-path: polygon(0 0, 100% 0, 0 100%);
+        z-index: 1;
+      }
+      .clip-bottom-right {
+        clip-path: polygon(100% 100%, 100% 0, 0 100%);
+        z-index: 2;
+      }
+    `;
+    document.head.appendChild(style);
+  </script>
+</head>
+
+<body class="bg-green-50 p-4 font-sans">
+  <h1 class="text-2xl font-bold mb-4 text-green-700">Disponibilidad para jugar al Pádel</h1>
+
+  <form id="form" class="mb-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+    <select name="nombre" required class="border p-2 rounded">
+      <option value="">Selecciona tu nombre</option>
+      <option value="Kakun">Kakun</option>
+      <option value="Fany">Fany</option>
+      <option value="Moni">Moni</option>
+      <option value="Sara">Sara</option>
+      <option value="Comodín">Comodín</option>
+    </select>
+    <input name="fecha" type="date" required class="border p-2 rounded" />
+    <select name="turno" required class="border p-2 rounded">
+      <option value="">Mañana o Tarde</option>
+      <option value="mañana">Mañana</option>
+      <option value="tarde">Tarde</option>
+    </select>
+    <button class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Guardar</button>
+  </form>
+
+  <button id="toggle-lista" class="mb-2 text-sm text-blue-600 hover:underline">Mostrar/Ocultar Disponibilidades registradas</button>
+  <h2 class="text-lg font-semibold">Disponibilidades registradas</h2>
+  <ul id="lista" class="mb-6 list-disc list-inside"></ul>
+
+  <h2 class="text-lg font-semibold mb-2">Calendario visual</h2>
+  <div id="calendario-visual" class="overflow-x-auto mb-6"></div>
+
+  <div class="mt-4 p-4 bg-white border rounded shadow text-sm">
+    <h3 class="font-semibold mb-2">Leyenda:</h3>
+    <p><span class="inline-block w-4 h-4 bg-green-500 mr-2"></span> 4 jugadores disponibles</p>
+    <p><span class="inline-block w-4 h-4 bg-yellow-300 mr-2"></span> 3 jugadores disponibles</p>
+    <p><span class="inline-block w-4 h-4 bg-gray-300 mr-2"></span> Menos de 3 jugadores</p>
+  </div>
+</body>
+
+</html>
