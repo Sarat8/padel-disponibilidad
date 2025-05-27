@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Disponibilidad Pádel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .clip-top-left {
+      clip-path: polygon(0 0, 100% 0, 0 100%);
+      z-index: 1;
+    }
+
+    .clip-bottom-right {
+      clip-path: polygon(100% 100%, 100% 0, 0 100%);
+      z-index: 2;
+    }
+
+    @media (max-width: 640px) {
+      .cal-cell {
+        width: 40px !important;
+        height: 40px !important;
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-green-50 p-4 font-sans max-w-screen-sm mx-auto">
+  <h1 class="text-2xl font-bold mb-4 text-green-700 text-center">
+    Disponibilidad para jugar al Pádel
+  </h1>
+
+  <form id="form" class="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+    <select name="nombre" required class="border p-2 rounded" aria-label="Nombre jugador">
+      <option value="" disabled selected>Selecciona tu nombre</option>
+      <option value="Kakun">Kakun</option>
+      <option value="Fany">Fany</option>
+      <option value="Moni">Moni</option>
+      <option value="Sara">Sara</option>
+      <option value="Comodín">Comodín</option>
+    </select>
+
+    <input
+      name="fecha"
+      type="date"
+      required
+      class="border p-2 rounded"
+      aria-label="Fecha"
+      min="2024-01-01"
+      max="2030-12-31"
+    />
+
+    <select name="turno" required class="border p-2 rounded" aria-label="Turno de juego">
+      <option value="" disabled selected>Mañana o Tarde</option>
+      <option value="mañana">Mañana</option>
+      <option value="tarde">Tarde</option>
+    </select>
+
+    <button
+      type="submit"
+      class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+      aria-label="Guardar disponibilidad"
+    >
+      Guardar
+    </button>
+  </form>
+
+  <div class="flex justify-center items-center gap-4 mb-2">
+    <button
+      id="prev-month"
+      class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+      aria-label="Mes anterior"
+    >
+      ←
+    </button>
+    <div
+      id="mes-anyo"
+      class="font-semibold text-green-800 text-lg select-none"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <!-- Mes y año -->
+    </div>
+    <button
+      id="next-month"
+      class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+      aria-label="Mes siguiente"
+    >
+      →
+    </button>
+  </div>
+
+  <h2 class="text-lg font-semibold mb-2 text-center">Calendario visual</h2>
+  <div id="calendario-visual" class="overflow-x-auto mb-6"></div>
+
+  <div class="mt-4 mb-4 p-3 bg-white rounded shadow-sm max-w-sm mx-auto">
+    <button
+      id="toggle-list"
+      class="mb-3 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 w-full"
+      aria-expanded="true"
+      aria-controls="lista"
+    >
+      Ocultar Disponibilidades Registradas
+    </button>
+
+    <ul
+      id="lista"
+      class="list-disc list-inside max-h-48 overflow-auto border border-gray-300 p-2 rounded"
+    ></ul>
+  </div>
+
+  <h2 class="text-lg font-semibold mb-2 max-w-sm mx-auto text-center">
+    Leyenda de colores
+  </h2>
+  <div
+    class="flex justify-center items-center gap-4 mb-8 max-w-sm mx-auto text-sm text-gray-700"
+    aria-label="Leyenda de colores de disponibilidad"
+  >
+    <div class="flex items-center gap-1">
+      <div class="w-6 h-6 bg-green-500 border border-gray-400 rounded"></div> 4 jugadores
+    </div>
+    <div class="flex items-center gap-1">
+      <div class="w-6 h-6 bg-yellow-300 border border-gray-400 rounded"></div> 3 jugadores
+    </div>
+    <div class="flex items-center gap-1">
+      <div class="w-6 h-6 bg-gray-300 border border-gray-400 rounded"></div> Menos de 3 jugadores / Sin disponibilidad
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      initializeApp,
+    } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      onSnapshot,
+      deleteDoc,
+      doc,
+    } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDxDWzC5lvwrZIGofndj17u0YrhudAFSHM",
+      authDomain: "padel-disponibilidad.firebaseapp.com",
+      projectId: "padel-disponibilidad",
+      storageBucket: "padel-disponibilidad.appspot.com",
+      messagingSenderId: "1075366795430",
+      appId: "1:1075366795430:web:d24e45368d70089dfb3c67",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const col = collection(db, "disponibilidades");
+
+    const form = document.getElementById("form");
+    const lista = document.getElementById("lista");
+    const calendario = document.getElementById("calendario-visual");
+    const mesAnyo = document.getElementById("mes-anyo");
+    const toggleBtn = document.getElementById("toggle-list");
+
+    let currentDate = new Date();
+    currentDate.setDate(1); // Siempre al primero del mes
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const nombre = form.nombre.value;
+      const fecha = form.fecha.value;
+      const turno = form.turno.value;
+
+      if (!nombre || !fecha || !turno) return;
+
+      await addDoc(col, { nombre, fecha, turno });
+      form.reset();
+    });
+
+    toggleBtn.addEventListener("click", () => {
+      const oculto = lista.style.display === "none";
+      lista.style.display = oculto ? "block" : "none";
+      toggleBtn.textContent = oculto
+        ? "Ocultar Disponibilidades Registradas"
+        : "Mostrar Disponibilidades Registradas";
+      toggleBtn.setAttribute("aria-expanded", oculto);
+    });
+
+    // Función para mostrar mes y año en formato MM/DD/YYYY
+    function formatMonthYear(date) {
+      const month = date.getMonth() + 1;
+      const year = date.getFullYear();
+      return `${month.toString().padStart(2, "0")}/${year}`;
+    }
+
+    // Mostrar el mes y año (ejemplo: 06/2025)
+    function mostrarMesAnyo(date) {
+      mesAnyo.textContent = formatMonthYear(date);
+    }
+
+    // Renderiza el calendario visual con triángulos y colores
+    function renderVisualCalendar(disponibilidades, year, month) {
+      calendario.innerHTML = "";
+      const diasEnMes = new Date(year, month + 1, 0).getDate();
+      const primerDiaSemana = new Date(year, month, 1).getDay();
+
+      const grid = document.createElement("div");
+      grid.className = "grid grid-cols-7 gap-1";
+
+      const nombresDias = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+      nombresDias.forEach((d) => {
+        const div = document.createElement("div");
+        div.className = "text-center font-bold text-sm text-gray-700";
+        div.textContent = d;
+        grid.appendChild(div);
+      });
+
+      // Espacios antes del primer día
+      for (let i = 0; i < primerDiaSemana; i++) {
+        const espacio = document.createElement("div");
+        espacio.className = "h-20 cal-cell"; // mantener tamaño consistente
+        grid.appendChild(espacio);
+      }
+
+      // Días del mes
+      for (let dia = 1; dia <= diasEnMes; dia++) {
+        const fecha = `${year}-${String(month + 1).padStart(2, "0")}-${String(
+          dia
+        ).padStart(2, "0")}`;
+        const mañanaKey = `${fecha}_mañana`;
+        const tardeKey = `${fecha}_tarde`;
+
+        const m = disponibilidades[mañanaKey] || [];
+        const t = disponibilidades[tardeKey] || [];
+
+        const mColor =
+          m.length >= 4
+            ? "bg-green-500"
+            : m.length === 3
+            ? "bg-yellow-300"
+            : "bg-gray-300";
+        const tColor =
+          t.length >= 4
+            ? "bg-green-500"
+            : t.length === 3
+            ? "bg-yellow-300"
+            : "bg-gray-300";
+
+        const cell = document.createElement("div");
+        cell.className = "relative w-20 h-20 border rounded-md overflow-hidden cal-cell";
+
+        const diaTexto = document.createElement("div");
+        diaTexto.className = "absolute top-0 left-0 text-xs text-gray-700 p-1 z-10";
+        diaTexto.textContent = dia;
+        cell.appendChild(diaTexto);
+
+        const topLeft = document.createElement("div");
+        topLeft.className = `absolute inset-0 ${mColor} clip-top-left`;
+        topLeft.title = `Mañana: ${m.join(", ")}`;
+        cell.appendChild(topLeft);
+
+        const bottomRight = document.createElement("div");
+        bottomRight.className = `absolute inset-0 ${tColor} clip-bottom-right`;
+        bottomRight.title = `Tarde: ${t.join(", ")}`;
+        cell.appendChild(bottomRight);
+
+        grid.appendChild(cell);
+      }
+
+      calendario.appendChild(grid);
+    }
+
+    // Recolectar disponibilidades y agruparlas para el calendario visual
+    function agruparDisponibilidades(data) {
+      const result = {};
+      data.forEach((doc) => {
+        const d = doc.data();
+        if (!d.fecha || !d.turno || !d.nombre) return;
+        const key = `${d.fecha}_${d.turno}`;
+        if (!result[key]) result[key] = [];
+        if (!result[key].includes(d.nombre)) result[key].push(d.nombre);
+      });
+      return result;
+    }
+
+    // Mostrar lista de disponibilidades en UL
+    function mostrarLista(data) {
+  lista.innerHTML = "";
+  data.forEach((docSnap) => {
+    const d = docSnap.data();
+    if (!d.fecha || !d.turno || !d.nombre) return;
+    const [yyyy, mm, dd] = d.fecha.split("-");
+    const fechaVisual = `${mm}/${dd}/${yyyy}`;
+
+    const li = document.createElement("li");
+    li.className = "flex justify-between items-center gap-2";
+
+    const span = document.createElement("span");
+    span.textContent = `${d.nombre} - ${fechaVisual} - ${d.turno}`;
+
+    const btn = document.createElement("button");
+    btn.textContent = "❌";
+    btn.title = "Eliminar";
+    btn.className = "text-red-500 hover:text-red-700";
+    btn.addEventListener("click", async () => {
+      if (confirm("¿Eliminar esta disponibilidad?")) {
+        await deleteDoc(doc(db, "disponibilidades", docSnap.id));
+      }
+    });
+
+    li.appendChild(span);
+    li.appendChild(btn);
+    lista.appendChild(li);
+  });
+}
+
+
+    // Escuchar cambios en tiempo real y actualizar todo
+    onSnapshot(col, (snapshot) => {
+      const docs = snapshot.docs;
+      mostrarLista(docs);
+
+      const agrupado = agruparDisponibilidades(docs);
+      renderVisualCalendar(agrupado, currentDate.getFullYear(), currentDate.getMonth());
+      mostrarMesAnyo(currentDate);
+    });
+
+    // Navegación entre meses
+    document.getElementById("prev-month").addEventListener("click", () => {
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      onSnapshot(col, (snapshot) => {
+        const agrupado = agruparDisponibilidades(snapshot.docs);
+        renderVisualCalendar(
+          agrupado,
+          currentDate.getFullYear(),
+          currentDate.getMonth()
+        );
+        mostrarMesAnyo(currentDate);
+      });
+    });
+
+    document.getElementById("next-month").addEventListener("click", () => {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      onSnapshot(col, (snapshot) => {
+        const agrupado = agruparDisponibilidades(snapshot.docs);
+        renderVisualCalendar(
+          agrupado,
+          currentDate.getFullYear(),
+          currentDate.getMonth()
+        );
+        mostrarMesAnyo(currentDate);
+      });
+    });
+  </script>
+</body>
+
+</html>
